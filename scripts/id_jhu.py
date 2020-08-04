@@ -78,9 +78,14 @@ def threshold_re_id(sex_bins=2,race_bins=7,ethnicity_bins=2,age_specificity=1,
     #            k level or less
 
     df_risk_ratio = gen_risk_ratio(sex_bins,race_bins,ethnicity_bins,age_specificity,age_cap,k_level)
+    
+    # Identify counties where risk is less than the determined cutoff
     safe_locales = (df_risk_ratio < id_cutoff).to_numpy().sum(axis=0) / len(df_risk_ratio.index)
+    
     fig, ax = plt.subplots()
     plt.plot(df_risk_ratio.columns.values,safe_locales)
+    
+    # Label by week
     for n, label in enumerate(ax.xaxis.get_ticklabels()):
         if n % 7 != 0:
             label.set_visible(False)
@@ -95,15 +100,21 @@ def threshold_re_id(sex_bins=2,race_bins=7,ethnicity_bins=2,age_specificity=1,
 ###
 
 def gen_geomap(sex_bins=2,race_bins=7,ethnicity_bins=2,age_specificity=1,age_cap=90,k_level=1,
-        date='4/1/20'):
+        date='7/29/20'):
 
-    #
+    # Show COVID re-identification risk for the US (as a choropleth map) on a given date
+    # date: string input (no leading 0's) of the desired date
     
     df_risk_ratio = gen_risk_ratio(sex_bins,race_bins,ethnicity_bins,age_specificity,age_cap,k_level)
+    
+    # Strip out all values of NaN either in the FIPS code or COVID cases, that way it shows up white
     df_risk_ratio = df_risk_ratio[df_risk_ratio.index.notna() & df_risk_ratio[date].notna()]
+
     fips = (df_risk_ratio.index.values)
     values = df_risk_ratio[date]
-
+    
+    # N.B. Plasma is perceptually linear but the chosen endpoints are not, as data are more useful
+    # at the extremes
     cmap = px.colors.sequential.Plasma
     endpts = [0.01, 0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95]
 
@@ -116,5 +127,4 @@ def gen_geomap(sex_bins=2,race_bins=7,ethnicity_bins=2,age_specificity=1,age_cap
     fig.layout.template = None
     fig.show()
 
-
-
+###
