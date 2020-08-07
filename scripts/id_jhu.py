@@ -10,6 +10,9 @@ import seaborn as sns
 import random
 import plotly.figure_factory as ff
 import plotly.express as px
+import time
+
+rng = np.random.default_rng()
 
 # Apply the Golle formula, log must be used to prevent overflows
 def estimate_anon(pop,bins,k_level):
@@ -129,3 +132,187 @@ def gen_geomap(sex_bins=2,race_bins=7,ethnicity_bins=2,age_specificity=1,age_cap
     fig.show()
 
 ###
+
+def make_census_array(df,FIPS):
+    
+    # Turn census data for a FIPS region into a single 5-dimensional array
+    #
+    # Inputs:
+    # df: the trimmed census dataframe for the desired FIPS
+    #
+    # Outputs:
+    # pop_arrays: an 18x2x6x2 array containing the counts in the region by
+    #             age, ethnicity, race, and sex in that order - key below
+    # age index (0-17): 0-4,5-9,10-14,15-19,20-24,25-29,30-34,35-39,40-44,45-49,50-54,55-59,
+    #                    60-64,65-69,70-74,75-79,80-84,85+
+    # ethnicity index (0-1): 0 non-hispanic, 1 hispanic
+    # race index (0-5): 0 white, 1 black, 2 Am. Indian/AK native, 3 asian, 4 native hawaiian/OPI,
+    #                   5 two or more races
+    # sex index (0-1): 0 male, 1 female
+    #
+    # Example: pop_arrays(4,0,0,0) is the number of 20-24 yr old white non-hispanic males
+
+    df = df[df['FIPS'] == FIPS]
+    pop_df = df[df['AGEGRP'] != 0]
+    pop_arrays = pop_df[['NHWA_MALE','NHWA_FEMALE','NHBA_MALE','NHBA_FEMALE','NHIA_MALE',
+        'NHIA_FEMALE','NHAA_MALE','NHAA_FEMALE','NHNA_MALE','NHNA_FEMALE','NHTOM_MALE',
+        'NHTOM_FEMALE','HWA_MALE','HWA_FEMALE','HBA_MALE','HBA_FEMALE','HIA_MALE','HIA_FEMALE',
+        'HAA_MALE','HAA_FEMALE','HNA_MALE','HNA_FEMALE','HTOM_MALE',
+        'HTOM_FEMALE']].to_numpy()
+
+    pop_arrays = pop_arrays.reshape([18,2,6,2])
+
+    return pop_arrays
+
+###
+
+def gen_mc_risk_ratio(case_df, census_df,k_level,FIPS):
+
+    demo_arr = census_df.loc[census_df['FIPS'] == FIPS,['DEMO_ARR']].to_numpy()
+    
+    # Convert demographic array to 1-dimension
+    demo_list = demo_arr[0,0][0].reshape(-1)
+
+    # Find the time-series for the desired location
+    case_series = case_df.xs(float(FIPS))
+    anon_list = []
+
+    for case in case_series:
+        # Take a Monte Carlo sample of 'individuals' from the region population
+        mc_sample = rng.choice(np.sum(demo_list),case,replace=False)
+        
+        # Identify the demographic bins that the sampled individuals fall in and total bins of size < k
+        cum_demo = np.cumsum(demo_list)
+        sample_bins = [np.argmax(cum_demo >= k) for k in mc_sample]
+        anon_list.append(np.sum(demo_list[sample_bins] <= k_level))
+
+    return(anon_list/case_series.to_numpy())
+
+###
+
+def monte_carlo_sim(k_level=1):
+
+    ##### --- Build the Census Pickle --- #####
+
+    #census_df = pd.read_pickle('../census_data/census_usa_2019.pkl')
+
+    # Generate full 5-digit FIPS codes from FIPS state and county codes in census data
+    #census_df['STATE'] = census_df['STATE'].astype(str).apply(lambda x: x.zfill(2))
+    #census_df['COUNTY'] = census_df['COUNTY'].astype(str).apply(lambda x: x.zfill(3))
+    #census_df['FIPS'] = census_df["STATE"].astype(str) + census_df["COUNTY"].astype(str)
+    
+    # Get the total population (based on 2019 census estimates) by FIPS code in a dict
+    #pop_df = census_df.loc[census_df['AGEGRP'] == 0]
+    #sample_df = pd.concat([pop_df['FIPS'],pop_df['TOT_POP']],axis=1)
+    
+    #sample_df['DEMO_ARR'] = sample_df['FIPS'].apply(lambda row: [make_census_array(census_df,row)])
+    #sample_df.to_pickle('../census_data/processed_19_data.pkl')
+
+    ##### --- End Build the Census Pickle --- #####
+
+    start_t = time.time()
+    sample_df = pd.read_pickle('../census_data/processed_19_data.pkl')
+
+    case_df = pd.read_csv('../csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_confirmed_US.csv')
+    case_df.drop(['UID','iso2','iso3','code3','Combined_Key','Admin2','Province_State','Country_Region',
+        'Lat','Long_'], axis=1,inplace=True)
+
+    case_df.set_index('FIPS',inplace=True)
+
+    # Calculate the rolling average using a 7-day window
+    case_df_rolled = case_df.rolling(7,axis=1,center=False).mean()
+    
+    ##a = gen_mc_risk_ratio(case_df,sample_df,k_level,'01009')
+    ##print(a)
+
+    FIPScodes = case_df.index[case_df.index.isin(sample_df['FIPS'].astype(float))].astype(int).astype(str)
+    
+    FIPScodes = FIPScodes.to_numpy().astype(str)
+    FIPScodes = np.chararray.zfill(FIPScodes,5)
+
+    mc_risk = pd.DataFrame(index=FIPScodes,columns=case_df.columns)
+    i = 0
+    for fips_code in mc_risk.index:
+        if i % 10 == 0:
+            print('Finished wih #'+str(i))
+        if i < 10000:
+            mc_risk.loc[fips_code] = gen_mc_risk_ratio(case_df,sample_df,k_level,fips_code)
+        else: break
+        i += 1
+
+    mc_risk.to_pickle('../data/mc_k_'+str(k_level)+'.pkl')
+
+    print('--- %s seconds----' % (time.time() - start_t))
+
+###
+
+def gen_mc_geomap(k_level=1, date='7/29/20'):
+
+    # Show COVID re-identification risk for the US (as a choropleth map) on a given date
+    # date: string input (no leading 0's) of the desired date
+    # 
+    # Used w/ Monte Carlo risk simulation
+
+    df_risk_ratio = pd.read_pickle('../data/mc_k_'+str(k_level)+'.pkl')
+    
+    # Strip out all values of NaN either in the FIPS code or COVID cases, that way it shows up white
+    df_risk_ratio = df_risk_ratio[df_risk_ratio.index.notna() & df_risk_ratio[date].notna()]
+
+    fips = (df_risk_ratio.index.values)
+    values = df_risk_ratio[date]
+    
+    # N.B. Plasma is perceptually linear but the chosen endpoints are not, as data are more useful
+    # at the extremes
+    cmap = px.colors.sequential.Plasma
+    endpts = [0.01, 0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95]
+
+    fig = ff.create_choropleth(fips=fips,values=values,colorscale=cmap,round_legend_values=False,
+            title=('COVID Data Sharing Risk on ' + date + ' at k-level ' + str(k_level)), 
+            binning_endpoints = endpts, legend_title='Re-ID risk')
+    fig.layout.template = None
+    fig.show()
+
+###
+
+def threshold_mc_re_id(k_level=1,id_cutoff=0.05):
+
+    # For a given sharing profile, estimate the number of counties that can safely share that data
+    # using a desired k level and population percentage
+    # id_cutoff: The percentage of the population that is acceptable to be identifiable at the given
+    #            k level or less
+    #
+    # Used w/ Monte Carlo risk simulation
+
+    df_risk_ratio = pd.read_pickle('../data/mc_k_'+str(k_level)+'.pkl')
+    
+    # Identify counties where risk is less than the determined cutoff
+    safe_locales = (df_risk_ratio < id_cutoff).to_numpy().sum(axis=0) / len(df_risk_ratio.index)
+    
+    fig, ax = plt.subplots()
+    plt.plot(df_risk_ratio.columns.values,safe_locales)
+    
+    # Label by week
+    for n, label in enumerate(ax.xaxis.get_ticklabels()):
+        if n % 7 != 0:
+            label.set_visible(False)
+    plt.xticks(rotation=60)
+    plt.title('Proportion of counties with an expected re-identification risk of ' + str(id_cutoff) +
+            ' at k-level of ' + str(k_level))
+    plt.show()
+
+###
+
+def gen_mc_heatmap(seed=7312020,k_level=1):
+    
+    # Generate heatmap over time for 50 randomly selected FIPS codes, specify seed if desired
+    # Used w/ Monte Carlo risk simulation
+
+    random.seed(seed)
+
+    df_risk_ratio = pd.read_pickle('../data/mc_k_'+str(k_level)+'.pkl')
+    dates = pd.to_datetime(df_risk_ratio.columns.values)
+    loc_pool = random.sample(range(len(df_risk_ratio)),50)
+
+    ax=sns.heatmap(df_risk_ratio.iloc[loc_pool].to_numpy(),cmap='jet')
+    plt.show()
+
