@@ -11,6 +11,7 @@ import random
 import plotly.figure_factory as ff
 import plotly.express as px
 import time
+import multiprocessing as mp
 
 rng = np.random.default_rng()
 
@@ -160,7 +161,7 @@ def make_census_array(df,FIPS):
         'HAA_MALE','HAA_FEMALE','HNA_MALE','HNA_FEMALE','HTOM_MALE',
         'HTOM_FEMALE']].to_numpy()
 
-    pop_arrays = pop_arrays.reshape([18,2,6,2])
+    pop_arrays = pop_arrays.reshape(432)
 
     return pop_arrays
 
@@ -315,4 +316,70 @@ def gen_mc_heatmap(seed=7312020,k_level=1):
 
     ax=sns.heatmap(df_risk_ratio.iloc[loc_pool].to_numpy(),cmap='jet')
     plt.show()
+
+###
+
+def gen_mc_risk_ratio_opt(num):
+    
+    # Generates the bin size (k) for each COVID case using a Monte Carlo algorithm and returns
+    # results as a pickled series of length 596980 (aka 190 dates x 3142 FIPS codes) containing
+    # lists of various sizes
+    # 
+    # num is a dummy variable used for multiprocessing, so is the return value of 1
+
+    start_t = time.time()
+    sample_df = pd.read_pickle('../census_data/processed_19_data.pkl')
+
+    case_df = pd.read_csv('../csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_confirmed_US.csv')
+    case_df.drop(['UID','iso2','iso3','code3','Combined_Key','Admin2','Province_State','Country_Region',
+        'Lat','Long_'], axis=1,inplace=True)
+
+    case_df.set_index('FIPS',inplace=True)
+
+    # Calculate the rolling average using a 7-day window
+    case_df_rolled = case_df.rolling(7,axis=1,center=False).mean()
+    
+    # Convert FIPS floats in the JHU dataset to strings with leading zeroes
+    case_df = case_df[case_df.index.notnull()]
+    case_df.index = case_df.index.astype(int).map(str).str.zfill(5)
+
+    # Trim the JHU dataset to only use FIPS that we have census data for
+    case_df = case_df[case_df.index.isin(sample_df['FIPS'])]
+    
+    # Extra check to ensure both lists correspond to the same FIPS codes
+    case_df.sort_index()
+    sample_df.sort_values(by=['FIPS'])
+
+    # Convert demographics to a 3142 [FIPS] x 432 [demographic bins] array, and assoc. cumulative array
+    demo_arr = np.stack(sample_df['DEMO_ARR'].to_numpy()).squeeze()
+    cum_demo_arr = np.cumsum(demo_arr,axis=1)
+ 
+    case_arr = case_df.to_numpy()
+    anon_list = []
+
+    # Find the time-series for the desired location
+    for i in range(case_arr.shape[0]): 
+        if i % 100 == 0:
+            print('Finished wih #'+str(i))
+        if i > 100: break
+        for case in case_arr[i][:]:
+            # Take a Monte Carlo sample of 'individuals' from the region population
+            mc_sample = rng.choice(np.sum(demo_arr[i][:]),case,replace=False)
+            
+            # Identify the demo bins that the sampled individuals fall in and total bins of size < k
+            sample_bins = [np.argmax(cum_demo_arr[i][:] >= k) for k in mc_sample]
+            anon_list.append(demo_arr[i][sample_bins])
+    
+    # Turn list into Series, then pickle
+    mc_risk = pd.Series(anon_list)
+    mc_risk.to_pickle('../data/mc_opt_'+str(time.time()).replace('.','-')+'.pkl')
+
+    print('--- %s seconds----' % (time.time() - start_t))
+    return(1)
+###
+
+# Execute function on desired number of workers, for 'x' repetitions 
+if __name__ == '__main__':
+    p = mp.Pool(16)
+    p.map(gen_mc_risk_ratio_opt,range(2))
 
