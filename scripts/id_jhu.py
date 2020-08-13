@@ -325,7 +325,7 @@ def gen_mc_risk_ratio_opt(num):
     # results as a pickled series of length 596980 (aka 190 dates x 3142 FIPS codes) containing
     # lists of various sizes
     # 
-    # num is a dummy variable used for multiprocessing, so is the return value of 1
+    # num is a count variable used for multiprocessing, return variable doesn't matter
 
     start_t = time.time()
     sample_df = pd.read_pickle('../census_data/processed_19_data.pkl')
@@ -361,7 +361,7 @@ def gen_mc_risk_ratio_opt(num):
     for i in range(case_arr.shape[0]): 
         if i % 100 == 0:
             print('Finished wih #'+str(i))
-        if i > 100: break
+       # if i > 100: break
         for case in case_arr[i][:]:
             # Take a Monte Carlo sample of 'individuals' from the region population
             mc_sample = rng.choice(np.sum(demo_arr[i][:]),case,replace=False)
@@ -372,7 +372,7 @@ def gen_mc_risk_ratio_opt(num):
     
     # Turn list into Series, then pickle
     mc_risk = pd.Series(anon_list)
-    mc_risk.to_pickle('../data/mc_opt_'+str(time.time()).replace('.','-')+'.pkl')
+    mc_risk.to_pickle('/data/victor/covid/mc_opt_'+str(time.time()).replace('.','-')+'_'+str(num)+'.pkl')
 
     print('--- %s seconds----' % (time.time() - start_t))
     return(1)
@@ -380,6 +380,6 @@ def gen_mc_risk_ratio_opt(num):
 
 # Execute function on desired number of workers, for 'x' repetitions 
 if __name__ == '__main__':
-    p = mp.Pool(16)
-    p.map(gen_mc_risk_ratio_opt,range(2))
+    p = mp.Pool(24)
+    p.map(gen_mc_risk_ratio_opt,range(18))
 
