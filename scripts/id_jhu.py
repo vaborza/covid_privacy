@@ -356,12 +356,17 @@ def gen_mc_risk_ratio_opt(num):
  
     case_arr = case_df.to_numpy()
     anon_list = []
-
+    
+    # De-accumulate the JH dataset, preserving the initial value. Then, trim negative values to 0
+    case_arr = np.column_stack((case_arr[:,0], np.diff(case_arr,axis=1)))
+    case_arr = np.clip(case_arr,a_min=0,a_max=None)
+    
+    #print(case_arr)
     # Find the time-series for the desired location
     for i in range(case_arr.shape[0]): 
         if i % 100 == 0:
             print('Finished wih #'+str(i))
-       # if i > 100: break
+        #if i > 10: break
         for case in case_arr[i][:]:
             # Take a Monte Carlo sample of 'individuals' from the region population
             mc_sample = rng.choice(np.sum(demo_arr[i][:]),case,replace=False)
@@ -373,13 +378,13 @@ def gen_mc_risk_ratio_opt(num):
     # Turn list into Series, then pickle
     mc_risk = pd.Series(anon_list)
     mc_risk.to_pickle('/data/victor/covid/mc_opt_'+str(time.time()).replace('.','-')+'_'+str(num)+'.pkl')
-
+    
     print('--- %s seconds----' % (time.time() - start_t))
     return(1)
 ###
 
 # Execute function on desired number of workers, for 'x' repetitions 
 if __name__ == '__main__':
-    p = mp.Pool(24)
-    p.map(gen_mc_risk_ratio_opt,range(18))
+    p = mp.Pool(25)
+    p.map(gen_mc_risk_ratio_opt,range(75))
 

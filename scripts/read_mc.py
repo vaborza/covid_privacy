@@ -11,6 +11,21 @@ import matplotlib.pyplot as plt
 import plotly.figure_factory as ff
 import plotly.express as px
 
+def gen_stats_arr():
+    # Initialize the list to capture all 100 Monte Carlo samples
+    stats_list = []
+    data_path = glob.glob('/data/victor/covid/*.npy')
+
+    # Read in the Monte Carlo samples and convert to an array
+    # Array size: 100 samples x 3142 locations x 190 dates x 5 stats (k1,k5,k10,mean,std)
+    for mc_sample in data_path:
+        stats_list.append(np.load(mc_sample))
+
+    stats_arr = np.array(stats_list)
+
+    with open('../data/stats_arr.npy','wb') as f:
+        np.save(f,stats_arr)
+
 def plot_k_timelines():
     start_time = time.time()
 
