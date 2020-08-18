@@ -377,14 +377,15 @@ def gen_mc_risk_ratio_opt(num):
     
     # Turn list into Series, then pickle
     mc_risk = pd.Series(anon_list)
-    mc_risk.to_pickle('/data/victor/covid/mc_opt_'+str(time.time()).replace('.','-')+'_'+str(num)+'.pkl')
+    mc_risk.to_pickle('/data/victor/covid/mc_opt_'+str(num)+'.pkl')
     
     print('--- %s seconds----' % (time.time() - start_t))
     return(1)
 ###
 
-# Execute function on desired number of workers, for 'x' repetitions 
-if __name__ == '__main__':
-    p = mp.Pool(25)
-    p.map(gen_mc_risk_ratio_opt,range(75))
+for i in range(78,100):
+    gen_mc_risk_ratio_opt(i)
 
+## TODO ##
+# Code should be parallelized - note that numpy RNG does not play along with parallelization and 
+# returns the same numbers for each worker in a pool
